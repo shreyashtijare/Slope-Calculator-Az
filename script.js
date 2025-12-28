@@ -5,7 +5,6 @@ async function loadAzureMaps() {
   if (azureMapsLoaded) return true;
   
   try {
-    // Fetch subscription key from serverless function
     const response = await fetch('/api/maps-config');
     const data = await response.json();
     
@@ -14,10 +13,8 @@ async function loadAzureMaps() {
       return false;
     }
     
-    // Store the key globally for map initialization
     window.azureMapsSubscriptionKey = data.subscriptionKey;
     
-    // Load Azure Maps SDK
     const mapScript = document.createElement('script');
     mapScript.src = 'https://atlas.microsoft.com/sdk/javascript/mapcontrol/2/atlas.min.js';
     
@@ -27,7 +24,6 @@ async function loadAzureMaps() {
       document.head.appendChild(mapScript);
     });
     
-    // Load Drawing Tools
     const drawScript = document.createElement('script');
     drawScript.src = 'https://atlas.microsoft.com/sdk/javascript/drawing/0/atlas-drawing.min.js';
     
@@ -81,7 +77,6 @@ document.querySelectorAll(".sidebar a").forEach(link => {
     const target = document.getElementById(link.dataset.panel);
     if (target) target.classList.add("active");
 
-    // Initialize or resize map
     if (link.dataset.panel === "mapPanel") {
       if (!mapInitialized) {
         const loaded = await loadAzureMaps();
@@ -89,7 +84,7 @@ document.querySelectorAll(".sidebar a").forEach(link => {
           initMap();
           mapInitialized = true;
         } else {
-          alert('Failed to load Azure Maps. Please check your internet connection.');
+          alert('Failed to load Azure Maps.');
         }
       } else if (map) {
         map.resize();
@@ -191,24 +186,22 @@ function initMap() {
     return;
   }
 
-  console.log('Initializing map with subscription key...');
+  console.log('Initializing map...');
 
-  // Initialize map
   map = new atlas.Map('map', {
-    center: [78.9629, 20.5937], // [longitude, latitude]
+    center: [78.9629, 20.5937],
     zoom: 4,
-    style: 'satellite_road_labels',
+    style: 'road', // Changed from satellite to road to avoid 403
+    view: 'Auto',
     authOptions: {
       authType: 'subscriptionKey',
       subscriptionKey: window.azureMapsSubscriptionKey
     }
   });
 
-  // Wait for map to be ready
   map.events.add('ready', function() {
     console.log('Map is ready!');
     
-    // Create drawing manager
     drawingManager = new atlas.drawing.DrawingManager(map, {
       toolbar: new atlas.control.DrawingToolbar({
         buttons: ['draw-polygon', 'draw-rectangle', 'edit-geometry'],
@@ -217,7 +210,6 @@ function initMap() {
       })
     });
 
-    // Handle shape completion
     map.events.add('drawingcomplete', drawingManager, function(shape) {
       if (activeShape) {
         drawingManager.getSource().remove(activeShape);
@@ -225,11 +217,10 @@ function initMap() {
       activeShape = shape;
     });
 
-    // Right-click context menu
     if (contextMenu) {
       map.events.add('contextmenu', function(e) {
         e.preventDefault();
-        contextLatLng = e.position; // [longitude, latitude]
+        contextLatLng = e.position;
 
         const pixel = map.positionsToPixels([e.position])[0];
         contextMenu.style.left = pixel[0] + 'px';
@@ -237,7 +228,6 @@ function initMap() {
         contextMenu.style.display = 'block';
       });
 
-      // Hide menu on click
       map.events.add('click', function(e) {
         if (contextMenu.style.display === 'block') {
           contextMenu.style.display = 'none';
@@ -250,7 +240,6 @@ function initMap() {
         }
       });
 
-      // Hide menu when clicking outside
       document.addEventListener('click', (e) => {
         if (!contextMenu.contains(e.target) && !mapElement.contains(e.target)) {
           contextMenu.style.display = 'none';
@@ -259,13 +248,12 @@ function initMap() {
     }
   });
   
-  // Add error event listener
   map.events.add('error', function(e) {
     console.error('Map error:', e);
+    alert('Map error - check if your Azure subscription key is valid');
   });
 }
 
-// Show/hide info panel
 function showInfo(html) {
   if (infoPanel) {
     infoPanel.innerHTML = html;
@@ -279,7 +267,6 @@ function hideInfo() {
   }
 }
 
-// Get shape area
 function getShapeArea(shape) {
   if (!shape) return 0;
   
@@ -291,7 +278,6 @@ function getShapeArea(shape) {
   return 0;
 }
 
-// Clear drawn shape
 const clearShapeBtn = document.getElementById("clearShape");
 if (clearShapeBtn) {
   clearShapeBtn.onclick = () => {
@@ -302,7 +288,6 @@ if (clearShapeBtn) {
   };
 }
 
-// Context menu actions
 if (contextMenu) {
   contextMenu.addEventListener("click", e => {
     const action = e.target.dataset.action;
@@ -313,7 +298,6 @@ if (contextMenu) {
     const lng = contextLatLng[0];
     const lat = contextLatLng[1];
 
-    // 1. Coordinates
     if (action === "coords") {
       showInfo(`
         <b>Coordinates</b><br>
@@ -322,7 +306,6 @@ if (contextMenu) {
       `);
     }
 
-    // 2. Calculate Area
     if (action === "area") {
       if (!activeShape) {
         showInfo("⚠️ Draw a polygon or rectangle first.");
@@ -338,12 +321,10 @@ if (contextMenu) {
       `);
     }
 
-    // 3. Start distance measure
     if (action === "startDistance") {
       measuringDistance = true;
       distancePath = [];
       
-      // Create data source for line
       if (!distanceDataSource) {
         distanceDataSource = new atlas.source.DataSource();
         map.sources.add(distanceDataSource);
@@ -359,7 +340,6 @@ if (contextMenu) {
       showInfo("📏 Distance measurement started.<br>Click to add points.");
     }
 
-    // 4. Finish distance measure
     if (action === "finishDistance") {
       measuringDistance = false;
       if (distancePath.length > 1) {
@@ -374,14 +354,12 @@ if (contextMenu) {
       }
     }
 
-    // 5. Export map image
     if (action === "export") {
       if (!activeShape) {
         showInfo("⚠️ Draw an area first.");
         return;
       }
 
-      // Get current map center and zoom
       const center = map.getCamera().center;
       const zoom = map.getCamera().zoom;
       const mapType = map.getStyle().style;
@@ -409,7 +387,7 @@ if (contextMenu) {
         })
         .catch((err) => {
           console.error(err);
-          showInfo("❌ Export failed. Check console for details.");
+          showInfo("❌ Export failed.");
         });
     }
   });
