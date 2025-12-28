@@ -1,2 +1,2 @@
-# Slope-Calculator
-This is a basic slope elevation calculator
+# Slope-Calculator-Az
+This is a basic slope elevation calculator bg az.
