@@ -5,12 +5,17 @@ async function loadAzureMaps() {
   if (azureMapsLoaded) return true;
   
   try {
-    // Fetch API key from serverless function
+    // Fetch subscription key from serverless function
     const response = await fetch('/api/maps-config');
     const data = await response.json();
     
+    if (!data.subscriptionKey) {
+      console.error('No subscription key received');
+      return false;
+    }
+    
     // Store the key globally for map initialization
-    window.azureMapsKey = data.apiKey;
+    window.azureMapsSubscriptionKey = data.subscriptionKey;
     
     // Load Azure Maps SDK
     const mapScript = document.createElement('script');
@@ -181,30 +186,33 @@ if (convertBtn) {
 /* -------- Azure Map -------- */
 function initMap() {
   const mapElement = document.getElementById("map");
-  if (!mapElement || !window.azureMapsKey) {
-    console.error("Map element or API key not found");
+  if (!mapElement || !window.azureMapsSubscriptionKey) {
+    console.error("Map element or subscription key not found");
     return;
   }
 
+  console.log('Initializing map with subscription key...');
+
   // Initialize map
   map = new atlas.Map('map', {
-    center: [78.9629, 20.5937], // [longitude, latitude] - Azure uses lon,lat order
+    center: [78.9629, 20.5937], // [longitude, latitude]
     zoom: 4,
-    style: 'satellite',
+    style: 'satellite_road_labels',
     authOptions: {
       authType: 'subscriptionKey',
-      subscriptionKey: window.azureMapsKey
+      subscriptionKey: window.azureMapsSubscriptionKey
     }
   });
 
   // Wait for map to be ready
   map.events.add('ready', function() {
+    console.log('Map is ready!');
     
     // Create drawing manager
     drawingManager = new atlas.drawing.DrawingManager(map, {
       toolbar: new atlas.control.DrawingToolbar({
         buttons: ['draw-polygon', 'draw-rectangle', 'edit-geometry'],
-        position: 'top-center',
+        position: 'top-right',
         style: 'light'
       })
     });
@@ -250,6 +258,11 @@ function initMap() {
       });
     }
   });
+  
+  // Add error event listener
+  map.events.add('error', function(e) {
+    console.error('Map error:', e);
+  });
 }
 
 // Show/hide info panel
@@ -272,7 +285,6 @@ function getShapeArea(shape) {
   
   const geometry = shape.toJson().geometry;
   if (geometry.type === 'Polygon') {
-    // Calculate area using coordinates
     const coords = geometry.coordinates[0];
     return Math.abs(atlas.math.getArea(coords));
   }
@@ -370,15 +382,15 @@ if (contextMenu) {
       }
 
       // Get current map center and zoom
-      const center = map.getCamera().center; // Returns [lng, lat]
+      const center = map.getCamera().center;
       const zoom = map.getCamera().zoom;
-      const mapType = map.getStyle().style; // 'satellite' or 'road'
+      const mapType = map.getStyle().style;
 
       fetch("/api/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          center: center, // [longitude, latitude]
+          center: center,
           zoom: Math.round(zoom),
           mapType: mapType.includes('satellite') ? 'satellite' : 'road'
         })
