@@ -193,4 +193,9 @@ button.secondary {
   font-size: 14px;
 }
 
+.map-toolbar button {
+  margin-bottom: 10px;
+  width: auto;
+  min-width: 120px;
+}
 
