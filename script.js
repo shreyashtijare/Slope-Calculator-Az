@@ -288,6 +288,26 @@ if (clearShapeBtn) {
   };
 }
 
+// Toggle map style between road and satellite
+const toggleStyleBtn = document.getElementById("toggleStyle");
+let currentStyle = 'road'; // Track current style
+
+if (toggleStyleBtn) {
+  toggleStyleBtn.onclick = () => {
+    if (!map) return;
+    
+    if (currentStyle === 'road') {
+      map.setStyle({ style: 'satellite_road_labels' });
+      currentStyle = 'satellite';
+      toggleStyleBtn.textContent = '🗺️ Road';
+    } else {
+      map.setStyle({ style: 'road' });
+      currentStyle = 'road';
+      toggleStyleBtn.textContent = '🛰️ Satellite';
+    }
+  };
+}
+
 if (contextMenu) {
   contextMenu.addEventListener("click", e => {
     const action = e.target.dataset.action;
