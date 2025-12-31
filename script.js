@@ -1,48 +1,51 @@
 /* -------- Load Azure Maps API Dynamically -------- */
-let azureMapsLoaded = false;
+(function() {
+  let mapsLoaded = false;
 
-async function loadAzureMaps() {
-  if (azureMapsLoaded) return true;
-  
-  try {
-    const response = await fetch('/api/maps-config');
-    const data = await response.json();
+  window.loadAzureMaps = async function() {
+    if (mapsLoaded) return true;
     
-    if (!data.subscriptionKey) {
-      console.error('No subscription key received');
+    try {
+      const response = await fetch('/api/maps-config');
+      const data = await response.json();
+      
+      if (!data.clientId && !data.subscriptionKey) {
+        console.error('No credentials received');
+        return false;
+      }
+      
+      window.azureMapsClientId = data.clientId;
+      window.azureMapsSubscriptionKey = data.subscriptionKey;
+      
+      const mapScript = document.createElement('script');
+      mapScript.src = 'https://atlas.microsoft.com/sdk/javascript/mapcontrol/2/atlas.min.js';
+      
+      await new Promise((resolve, reject) => {
+        mapScript.onload = resolve;
+        mapScript.onerror = reject;
+        document.head.appendChild(mapScript);
+      });
+      
+      const drawScript = document.createElement('script');
+      drawScript.src = 'https://atlas.microsoft.com/sdk/javascript/drawing/0/atlas-drawing.min.js';
+      
+      await new Promise((resolve, reject) => {
+        drawScript.onload = () => {
+          mapsLoaded = true;
+          resolve();
+        };
+        drawScript.onerror = reject;
+        document.head.appendChild(drawScript);
+      });
+      
+      console.log('Azure Maps loaded successfully');
+      return true;
+    } catch (error) {
+      console.error('Error loading Azure Maps:', error);
       return false;
     }
-    
-    window.azureMapsSubscriptionKey = data.subscriptionKey;
-    
-    const mapScript = document.createElement('script');
-    mapScript.src = 'https://atlas.microsoft.com/sdk/javascript/mapcontrol/2/atlas.min.js';
-    
-    await new Promise((resolve, reject) => {
-      mapScript.onload = resolve;
-      mapScript.onerror = reject;
-      document.head.appendChild(mapScript);
-    });
-    
-    const drawScript = document.createElement('script');
-    drawScript.src = 'https://atlas.microsoft.com/sdk/javascript/drawing/0/atlas-drawing.min.js';
-    
-    await new Promise((resolve, reject) => {
-      drawScript.onload = () => {
-        azureMapsLoaded = true;
-        resolve();
-      };
-      drawScript.onerror = reject;
-      document.head.appendChild(drawScript);
-    });
-    
-    console.log('Azure Maps loaded successfully');
-    return true;
-  } catch (error) {
-    console.error('Error loading Azure Maps:', error);
-    return false;
-  }
-}
+  };
+})();
 
 /* -------- Sidebar -------- */
 const sidebar = document.getElementById("sidebar");
@@ -79,7 +82,7 @@ document.querySelectorAll(".sidebar a").forEach(link => {
 
     if (link.dataset.panel === "mapPanel") {
       if (!mapInitialized) {
-        const loaded = await loadAzureMaps();
+        const loaded = await window.loadAzureMaps();
         if (loaded) {
           initMap();
           mapInitialized = true;
@@ -181,22 +184,33 @@ if (convertBtn) {
 /* -------- Azure Map -------- */
 function initMap() {
   const mapElement = document.getElementById("map");
-  if (!mapElement || !window.azureMapsSubscriptionKey) {
-    console.error("Map element or subscription key not found");
+  
+  // Try Client ID first (more reliable for Gen2), fallback to subscription key
+  const authOptions = window.azureMapsClientId ? {
+    authType: 'anonymous',
+    clientId: window.azureMapsClientId,
+    getToken: function(resolve, reject, map) {
+      // Use built-in anonymous authentication with client ID
+      resolve(window.azureMapsClientId);
+    }
+  } : {
+    authType: 'subscriptionKey',
+    subscriptionKey: window.azureMapsSubscriptionKey
+  };
+
+  if (!mapElement || (!window.azureMapsClientId && !window.azureMapsSubscriptionKey)) {
+    console.error("Map element or credentials not found");
     return;
   }
 
-  console.log('Initializing map...');
+  console.log('Initializing map with', window.azureMapsClientId ? 'Client ID' : 'Subscription Key');
 
   map = new atlas.Map('map', {
     center: [78.9629, 20.5937],
     zoom: 4,
     style: 'road',
     view: 'Auto',
-    authOptions: {
-      authType: 'subscriptionKey',
-      subscriptionKey: window.azureMapsSubscriptionKey
-    },
+    authOptions: authOptions,
     renderWorldCopies: false,
     preserveDrawingBuffer: true
   });
@@ -250,11 +264,11 @@ function initMap() {
     }
   });
   
-  // Updated error handler - suppress noisy tile loading errors
   map.events.add('error', function(e) {
     if (e.error && !e.error.message?.includes('aborted') && 
         !e.error.message?.includes('Expected value to be of type number')) {
       console.error('Map error:', e);
+      alert('Map authentication error. Check Azure Maps account permissions.');
     }
   });
 }
@@ -293,7 +307,6 @@ if (clearShapeBtn) {
   };
 }
 
-// Toggle map style between road and satellite with better error handling
 const toggleStyleBtn = document.getElementById("toggleStyle");
 let currentStyle = 'road';
 let isChangingStyle = false;
@@ -315,7 +328,6 @@ if (toggleStyleBtn) {
       toggleStyleBtn.textContent = '🛰️ Satellite';
     }
     
-    // Re-enable button after style transition
     setTimeout(() => {
       isChangingStyle = false;
       toggleStyleBtn.disabled = false;
