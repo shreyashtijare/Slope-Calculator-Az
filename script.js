@@ -191,12 +191,14 @@ function initMap() {
   map = new atlas.Map('map', {
     center: [78.9629, 20.5937],
     zoom: 4,
-    style: 'road', // Changed from satellite to road to avoid 403
+    style: 'road',
     view: 'Auto',
     authOptions: {
       authType: 'subscriptionKey',
       subscriptionKey: window.azureMapsSubscriptionKey
-    }
+    },
+    renderWorldCopies: false,
+    preserveDrawingBuffer: true
   });
 
   map.events.add('ready', function() {
@@ -248,9 +250,12 @@ function initMap() {
     }
   });
   
+  // Updated error handler - suppress noisy tile loading errors
   map.events.add('error', function(e) {
-    console.error('Map error:', e);
-    alert('Map error - check if your Azure subscription key is valid');
+    if (e.error && !e.error.message?.includes('aborted') && 
+        !e.error.message?.includes('Expected value to be of type number')) {
+      console.error('Map error:', e);
+    }
   });
 }
 
@@ -288,13 +293,17 @@ if (clearShapeBtn) {
   };
 }
 
-// Toggle map style between road and satellite
+// Toggle map style between road and satellite with better error handling
 const toggleStyleBtn = document.getElementById("toggleStyle");
-let currentStyle = 'road'; // Track current style
+let currentStyle = 'road';
+let isChangingStyle = false;
 
 if (toggleStyleBtn) {
   toggleStyleBtn.onclick = () => {
-    if (!map) return;
+    if (!map || isChangingStyle) return;
+    
+    isChangingStyle = true;
+    toggleStyleBtn.disabled = true;
     
     if (currentStyle === 'road') {
       map.setStyle({ style: 'satellite_road_labels' });
@@ -305,6 +314,12 @@ if (toggleStyleBtn) {
       currentStyle = 'road';
       toggleStyleBtn.textContent = '🛰️ Satellite';
     }
+    
+    // Re-enable button after style transition
+    setTimeout(() => {
+      isChangingStyle = false;
+      toggleStyleBtn.disabled = false;
+    }, 1000);
   };
 }
 
