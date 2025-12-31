@@ -9,12 +9,11 @@
       const response = await fetch('/api/maps-config');
       const data = await response.json();
       
-      if (!data.clientId && !data.subscriptionKey) {
-        console.error('No credentials received');
+      if (!data.subscriptionKey) {
+        console.error('No subscription key received');
         return false;
       }
       
-      window.azureMapsClientId = data.clientId;
       window.azureMapsSubscriptionKey = data.subscriptionKey;
       
       const mapScript = document.createElement('script');
@@ -185,34 +184,23 @@ if (convertBtn) {
 function initMap() {
   const mapElement = document.getElementById("map");
   
-  // Try Client ID first (more reliable for Gen2), fallback to subscription key
-  const authOptions = window.azureMapsClientId ? {
-    authType: 'anonymous',
-    clientId: window.azureMapsClientId,
-    getToken: function(resolve, reject, map) {
-      // Use built-in anonymous authentication with client ID
-      resolve(window.azureMapsClientId);
-    }
-  } : {
-    authType: 'subscriptionKey',
-    subscriptionKey: window.azureMapsSubscriptionKey
-  };
-
-  if (!mapElement || (!window.azureMapsClientId && !window.azureMapsSubscriptionKey)) {
-    console.error("Map element or credentials not found");
+  if (!mapElement || !window.azureMapsSubscriptionKey) {
+    console.error("Map element or subscription key not found");
     return;
   }
 
-  console.log('Initializing map with', window.azureMapsClientId ? 'Client ID' : 'Subscription Key');
+  console.log('Initializing map with subscription key');
 
   map = new atlas.Map('map', {
     center: [78.9629, 20.5937],
     zoom: 4,
     style: 'road',
     view: 'Auto',
-    authOptions: authOptions,
-    renderWorldCopies: false,
-    preserveDrawingBuffer: true
+    language: 'en-US',
+    authOptions: {
+      authType: 'subscriptionKey',
+      subscriptionKey: window.azureMapsSubscriptionKey
+    }
   });
 
   map.events.add('ready', function() {
@@ -265,11 +253,7 @@ function initMap() {
   });
   
   map.events.add('error', function(e) {
-    if (e.error && !e.error.message?.includes('aborted') && 
-        !e.error.message?.includes('Expected value to be of type number')) {
-      console.error('Map error:', e);
-      alert('Map authentication error. Check Azure Maps account permissions.');
-    }
+    console.error('Map error:', e);
   });
 }
 
