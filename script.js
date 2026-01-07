@@ -62,6 +62,7 @@ let mapInitialized = false;
 let map;
 let drawingManager;
 let activeShape = null;
+let areaLabel = null; // For displaying area inside shape
 let contextLatLng = null;
 let distancePath = [];
 let distanceDataSource = null;
@@ -211,14 +212,32 @@ function initMap() {
         buttons: ['draw-polygon', 'draw-rectangle', 'edit-geometry'],
         position: 'top-right',
         style: 'light'
-      })
+      }),
+      freehandInterval: 3,
+      snapDistance: 15 // Snap to starting point within 15 pixels
     });
 
+    // Handle shape completion
     map.events.add('drawingcomplete', drawingManager, function(shape) {
+      // Remove previous shape and label
       if (activeShape) {
         drawingManager.getSource().remove(activeShape);
       }
+      if (areaLabel) {
+        map.markers.remove(areaLabel);
+      }
+
       activeShape = shape;
+      
+      // Calculate and display area automatically
+      displayAreaOnShape(shape);
+    });
+
+    // Update area label when shape is edited
+    map.events.add('drawingchanged', drawingManager, function(shape) {
+      if (shape === activeShape) {
+        displayAreaOnShape(shape);
+      }
     });
 
     if (contextMenu) {
@@ -257,6 +276,79 @@ function initMap() {
   });
 }
 
+// Display area label inside the shape
+function displayAreaOnShape(shape) {
+  if (!shape) return;
+  
+  // Remove old label if exists
+  if (areaLabel) {
+    map.markers.remove(areaLabel);
+  }
+  
+  const geometry = shape.toJson().geometry;
+  let area = 0;
+  let center = null;
+  
+  if (geometry.type === 'Polygon') {
+    const coords = geometry.coordinates[0];
+    area = Math.abs(atlas.math.getArea(coords));
+    
+    // Calculate centroid (center) of polygon
+    let sumLng = 0, sumLat = 0;
+    coords.forEach(coord => {
+      sumLng += coord[0];
+      sumLat += coord[1];
+    });
+    center = [sumLng / coords.length, sumLat / coords.length];
+    
+  } else if (geometry.type === 'Rectangle' || shape instanceof atlas.Shape && shape.getType() === 'Polygon') {
+    // For rectangles
+    const coords = geometry.coordinates[0];
+    area = Math.abs(atlas.math.getArea(coords));
+    
+    // Get center of rectangle
+    const bounds = atlas.data.BoundingBox.fromData(geometry);
+    center = atlas.data.BoundingBox.getCenter(bounds);
+  }
+  
+  if (center && area > 0) {
+    // Create HTML content for the label
+    const areaM2 = area.toFixed(2);
+    const areaHa = (area / 10000).toFixed(4);
+    const areaAcres = (area * 0.000247105).toFixed(4);
+    
+    const htmlContent = `
+      <div style="
+        background: rgba(255, 255, 255, 0.95);
+        padding: 8px 12px;
+        border-radius: 6px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        font-family: system-ui, Arial, sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        color: #333;
+        text-align: center;
+        white-space: nowrap;
+        border: 2px solid #007bff;
+        pointer-events: none;
+      ">
+        <div style="font-size: 13px; color: #007bff; margin-bottom: 2px;">Area</div>
+        <div>${areaM2} m²</div>
+        <div style="font-size: 10px; color: #666;">${areaHa} ha | ${areaAcres} ac</div>
+      </div>
+    `;
+    
+    // Create HTML marker at center
+    areaLabel = new atlas.HtmlMarker({
+      position: center,
+      htmlContent: htmlContent,
+      pixelOffset: [0, 0]
+    });
+    
+    map.markers.add(areaLabel);
+  }
+}
+
 function showInfo(html) {
   if (infoPanel) {
     infoPanel.innerHTML = html;
@@ -287,6 +379,10 @@ if (clearShapeBtn) {
     if (activeShape && drawingManager) {
       drawingManager.getSource().remove(activeShape);
       activeShape = null;
+    }
+    if (areaLabel) {
+      map.markers.remove(areaLabel);
+      areaLabel = null;
     }
   };
 }
@@ -345,7 +441,7 @@ if (contextMenu) {
 
       const area = getShapeArea(activeShape);
       showInfo(`
-        <b>Area</b><br>
+        <b>Area Details</b><br>
         ${area.toFixed(2)} m²<br>
         ${(area / 10000).toFixed(4)} ha<br>
         ${(area * 0.000247105).toFixed(4)} acres
