@@ -467,19 +467,35 @@ if (contextMenu) {
       showInfo("📏 Distance measurement started.<br>Click to add points.");
     }
 
-    if (action === "finishDistance") {
-      measuringDistance = false;
-      if (distancePath.length > 1) {
-        const length = atlas.math.getLength(distancePath);
-        showInfo(`
-          <b>Distance</b><br>
-          ${length.toFixed(2)} m<br>
-          ${(length * 3.28084).toFixed(2)} ft
-        `);
-      } else {
-        showInfo("⚠️ Click at least 2 points to measure.");
-      }
+if (action === "finishDistance") {
+  measuringDistance = false;
+  if (distancePath.length > 1) {
+    // Calculate total distance by summing all segments
+    let totalDistance = 0;
+    
+    for (let i = 0; i < distancePath.length - 1; i++) {
+      const point1 = distancePath[i];
+      const point2 = distancePath[i + 1];
+      
+      // Use Azure Maps getDistanceTo function
+      const pos1 = new atlas.data.Position(point1[0], point1[1]);
+      const pos2 = new atlas.data.Position(point2[0], point2[1]);
+      const segmentDistance = atlas.math.getDistanceTo(pos1, pos2);
+      
+      totalDistance += segmentDistance;
     }
+    
+    showInfo(`
+      <b>Distance</b><br>
+      ${totalDistance.toFixed(2)} m<br>
+      ${(totalDistance / 1000).toFixed(3)} km<br>
+      ${(totalDistance * 3.28084).toFixed(2)} ft<br>
+      ${(totalDistance * 0.000621371).toFixed(3)} miles
+    `);
+  } else {
+    showInfo("⚠️ Click at least 2 points to measure.");
+  }
+}
 
     if (action === "export") {
       if (!activeShape) {
