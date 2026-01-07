@@ -193,8 +193,8 @@ function initMap() {
   console.log('Initializing map with subscription key');
 
   map = new atlas.Map('map', {
-    center: [78.9629, 20.5937],
-    zoom: 4,
+    center: [39.207462, -99.025410],
+    zoom: 6,
     style: 'road',
     view: 'Auto',
     language: 'en-US',
