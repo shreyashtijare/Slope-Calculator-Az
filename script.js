@@ -291,24 +291,15 @@ function displayAreaOnShape(shape) {
   
   if (geometry.type === 'Polygon') {
     const coords = geometry.coordinates[0];
-    area = Math.abs(atlas.math.getArea(coords));
+    area = calculatePolygonArea(coords);
     
     // Calculate centroid (center) of polygon
     let sumLng = 0, sumLat = 0;
-    coords.forEach(coord => {
-      sumLng += coord[0];
-      sumLat += coord[1];
-    });
-    center = [sumLng / coords.length, sumLat / coords.length];
-    
-  } else if (geometry.type === 'Rectangle' || shape instanceof atlas.Shape && shape.getType() === 'Polygon') {
-    // For rectangles
-    const coords = geometry.coordinates[0];
-    area = Math.abs(atlas.math.getArea(coords));
-    
-    // Get center of rectangle
-    const bounds = atlas.data.BoundingBox.fromData(geometry);
-    center = atlas.data.BoundingBox.getCenter(bounds);
+    for (let i = 0; i < coords.length - 1; i++) { // Exclude last point (duplicate of first)
+      sumLng += coords[i][0];
+      sumLat += coords[i][1];
+    }
+    center = [sumLng / (coords.length - 1), sumLat / (coords.length - 1)];
   }
   
   if (center && area > 0) {
@@ -362,15 +353,47 @@ function hideInfo() {
   }
 }
 
+// Calculate area manually using Shoelace formula
 function getShapeArea(shape) {
   if (!shape) return 0;
   
   const geometry = shape.toJson().geometry;
   if (geometry.type === 'Polygon') {
     const coords = geometry.coordinates[0];
-    return Math.abs(atlas.math.getArea(coords));
+    return calculatePolygonArea(coords);
   }
   return 0;
+}
+
+// Calculate polygon area using Shoelace formula and convert to square meters
+function calculatePolygonArea(coordinates) {
+  if (coordinates.length < 3) return 0;
+  
+  let area = 0;
+  const numPoints = coordinates.length;
+  
+  for (let i = 0; i < numPoints - 1; i++) {
+    const p1 = coordinates[i];
+    const p2 = coordinates[i + 1];
+    area += (p1[0] * p2[1]) - (p2[0] * p1[1]);
+  }
+  
+  // Close the polygon
+  const p1 = coordinates[numPoints - 1];
+  const p2 = coordinates[0];
+  area += (p1[0] * p2[1]) - (p2[0] * p1[1]);
+  
+  area = Math.abs(area) / 2;
+  
+  // Convert from degrees to square meters (approximate)
+  // At equator: 1 degree ≈ 111,320 meters
+  const metersPerDegreeLat = 111320;
+  const avgLat = coordinates.reduce((sum, coord) => sum + coord[1], 0) / coordinates.length;
+  const metersPerDegreeLon = metersPerDegreeLat * Math.cos(avgLat * Math.PI / 180);
+  
+  area = area * metersPerDegreeLat * metersPerDegreeLon;
+  
+  return area;
 }
 
 const clearShapeBtn = document.getElementById("clearShape");
