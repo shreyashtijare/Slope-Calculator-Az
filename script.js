@@ -62,7 +62,8 @@ let mapInitialized = false;
 let map;
 let drawingManager;
 let activeShape = null;
-let areaLabel = null; // For displaying area inside shape
+let areaLabel = null;
+let distanceMarkers = [];
 let contextLatLng = null;
 let distancePath = [];
 let distanceDataSource = null;
@@ -193,11 +194,13 @@ function initMap() {
   console.log('Initializing map with subscription key');
 
   map = new atlas.Map('map', {
-    center: [39.207462, -99.025410],
-    zoom: 6,
+    center: [78.9629, 20.5937],
+    zoom: 4,
     style: 'road',
     view: 'Auto',
     language: 'en-US',
+    showFeedbackLink: false,
+    showLogo: false,
     authOptions: {
       authType: 'subscriptionKey',
       subscriptionKey: window.azureMapsSubscriptionKey
@@ -207,19 +210,32 @@ function initMap() {
   map.events.add('ready', function() {
     console.log('Map is ready!');
     
+    // Add scale bar control (Feature 4)
+    map.controls.add(new atlas.control.ScaleControl({
+      maxBarLength: 100,
+      units: 'metric'
+    }), {
+      position: 'bottom-left'
+    });
+    
+    // Initialize drawing manager WITHOUT toolbar
     drawingManager = new atlas.drawing.DrawingManager(map, {
       toolbar: new atlas.control.DrawingToolbar({
-        buttons: ['draw-polygon', 'draw-rectangle', 'edit-geometry'],
+        buttons: [],  // No buttons - we'll use custom menu
         position: 'top-right',
-        style: 'light'
+        style: 'light',
+        visible: false
       }),
       freehandInterval: 3,
-      snapDistance: 15 // Snap to starting point within 15 pixels
+      snapDistance: 15,
+      // Fix for editing - ensure polygon stays visible
+      shapeDraggingOptions: {
+        visible: true
+      }
     });
 
     // Handle shape completion
     map.events.add('drawingcomplete', drawingManager, function(shape) {
-      // Remove previous shape and label
       if (activeShape) {
         drawingManager.getSource().remove(activeShape);
       }
@@ -228,12 +244,13 @@ function initMap() {
       }
 
       activeShape = shape;
-      
-      // Calculate and display area automatically
       displayAreaOnShape(shape);
+      
+      // Stop drawing mode after completion
+      drawingManager.setOptions({ mode: 'idle' });
     });
 
-    // Update area label when shape is edited
+    // Update area when shape is edited
     map.events.add('drawingchanged', drawingManager, function(shape) {
       if (shape === activeShape) {
         displayAreaOnShape(shape);
@@ -276,11 +293,38 @@ function initMap() {
   });
 }
 
-// Display area label inside the shape
+// Calculate polygon area using Shoelace formula
+function calculatePolygonArea(coordinates) {
+  if (coordinates.length < 3) return 0;
+  
+  let area = 0;
+  const numPoints = coordinates.length;
+  
+  for (let i = 0; i < numPoints - 1; i++) {
+    const p1 = coordinates[i];
+    const p2 = coordinates[i + 1];
+    area += (p1[0] * p2[1]) - (p2[0] * p1[1]);
+  }
+  
+  const p1 = coordinates[numPoints - 1];
+  const p2 = coordinates[0];
+  area += (p1[0] * p2[1]) - (p2[0] * p1[1]);
+  
+  area = Math.abs(area) / 2;
+  
+  const metersPerDegreeLat = 111320;
+  const avgLat = coordinates.reduce((sum, coord) => sum + coord[1], 0) / coordinates.length;
+  const metersPerDegreeLon = metersPerDegreeLat * Math.cos(avgLat * Math.PI / 180);
+  
+  area = area * metersPerDegreeLat * metersPerDegreeLon;
+  
+  return area;
+}
+
+// Display area label inside the shape (Feature 2 - added sq ft)
 function displayAreaOnShape(shape) {
   if (!shape) return;
   
-  // Remove old label if exists
   if (areaLabel) {
     map.markers.remove(areaLabel);
   }
@@ -293,9 +337,8 @@ function displayAreaOnShape(shape) {
     const coords = geometry.coordinates[0];
     area = calculatePolygonArea(coords);
     
-    // Calculate centroid (center) of polygon
     let sumLng = 0, sumLat = 0;
-    for (let i = 0; i < coords.length - 1; i++) { // Exclude last point (duplicate of first)
+    for (let i = 0; i < coords.length - 1; i++) {
       sumLng += coords[i][0];
       sumLat += coords[i][1];
     }
@@ -303,17 +346,17 @@ function displayAreaOnShape(shape) {
   }
   
   if (center && area > 0) {
-    // Create HTML content for the label
     const areaM2 = area.toFixed(2);
+    const areaSqFt = (area * 10.7639).toFixed(2);  // Convert m² to sq ft
     const areaHa = (area / 10000).toFixed(4);
     const areaAcres = (area * 0.000247105).toFixed(4);
     
     const htmlContent = `
       <div style="
         background: rgba(255, 255, 255, 0.95);
-        padding: 8px 12px;
-        border-radius: 6px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        padding: 10px 14px;
+        border-radius: 8px;
+        box-shadow: 0 3px 12px rgba(0,0,0,0.4);
         font-family: system-ui, Arial, sans-serif;
         font-size: 12px;
         font-weight: 600;
@@ -323,13 +366,12 @@ function displayAreaOnShape(shape) {
         border: 2px solid #007bff;
         pointer-events: none;
       ">
-        <div style="font-size: 13px; color: #007bff; margin-bottom: 2px;">Area</div>
-        <div>${areaM2} m²</div>
-        <div style="font-size: 10px; color: #666;">${areaHa} ha | ${areaAcres} ac</div>
+        <div style="font-size: 14px; color: #007bff; margin-bottom: 4px;">📐 Area</div>
+        <div style="margin: 2px 0;">${areaM2} m² / ${areaSqFt} ft²</div>
+        <div style="font-size: 10px; color: #666; margin-top: 4px;">${areaHa} ha | ${areaAcres} acres</div>
       </div>
     `;
     
-    // Create HTML marker at center
     areaLabel = new atlas.HtmlMarker({
       position: center,
       htmlContent: htmlContent,
@@ -337,6 +379,102 @@ function displayAreaOnShape(shape) {
     });
     
     map.markers.add(areaLabel);
+  }
+}
+
+// Feature 3: Update distance line with markers and labels
+function updateDistanceLine() {
+  if (!distanceDataSource || distancePath.length === 0) return;
+  
+  // Clear old markers
+  distanceMarkers.forEach(marker => map.markers.remove(marker));
+  distanceMarkers = [];
+  
+  distanceDataSource.clear();
+  
+  // Draw line
+  const line = new atlas.data.LineString(distancePath);
+  distanceDataSource.add(new atlas.data.Feature(line));
+  
+  // Add markers and labels for each segment
+  let totalDistance = 0;
+  
+  for (let i = 0; i < distancePath.length; i++) {
+    // Add vertex marker
+    const vertexMarker = new atlas.HtmlMarker({
+      position: distancePath[i],
+      htmlContent: `
+        <div style="
+          width: 12px;
+          height: 12px;
+          background: white;
+          border: 3px solid red;
+          border-radius: 50%;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        "></div>
+      `,
+      pixelOffset: [0, 0]
+    });
+    map.markers.add(vertexMarker);
+    distanceMarkers.push(vertexMarker);
+    
+    // Add distance label for each segment
+    if (i > 0) {
+      const pos1 = new atlas.data.Position(distancePath[i-1][0], distancePath[i-1][1]);
+      const pos2 = new atlas.data.Position(distancePath[i][0], distancePath[i][1]);
+      const segmentDistance = atlas.math.getDistanceTo(pos1, pos2);
+      totalDistance += segmentDistance;
+      
+      // Midpoint of segment
+      const midLng = (distancePath[i-1][0] + distancePath[i][0]) / 2;
+      const midLat = (distancePath[i-1][1] + distancePath[i][1]) / 2;
+      
+      const distLabel = new atlas.HtmlMarker({
+        position: [midLng, midLat],
+        htmlContent: `
+          <div style="
+            background: rgba(255, 255, 255, 0.95);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #d32f2f;
+            border: 1px solid #d32f2f;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            white-space: nowrap;
+          ">
+            ${segmentDistance.toFixed(1)} m
+          </div>
+        `,
+        pixelOffset: [0, -20]
+      });
+      map.markers.add(distLabel);
+      distanceMarkers.push(distLabel);
+    }
+  }
+  
+  // Total distance marker at end
+  if (distancePath.length > 1) {
+    const totalLabel = new atlas.HtmlMarker({
+      position: distancePath[distancePath.length - 1],
+      htmlContent: `
+        <div style="
+          background: rgba(211, 47, 47, 0.95);
+          padding: 6px 10px;
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 700;
+          color: white;
+          box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+          white-space: nowrap;
+        ">
+          Total: ${totalDistance.toFixed(2)} m
+        </div>
+      `,
+      pixelOffset: [0, 20]
+    });
+    map.markers.add(totalLabel);
+    distanceMarkers.push(totalLabel);
   }
 }
 
@@ -353,7 +491,6 @@ function hideInfo() {
   }
 }
 
-// Calculate area manually using Shoelace formula
 function getShapeArea(shape) {
   if (!shape) return 0;
   
@@ -365,56 +502,41 @@ function getShapeArea(shape) {
   return 0;
 }
 
-// Calculate polygon area using Shoelace formula and convert to square meters
-function calculatePolygonArea(coordinates) {
-  if (coordinates.length < 3) return 0;
-  
-  let area = 0;
-  const numPoints = coordinates.length;
-  
-  for (let i = 0; i < numPoints - 1; i++) {
-    const p1 = coordinates[i];
-    const p2 = coordinates[i + 1];
-    area += (p1[0] * p2[1]) - (p2[0] * p1[1]);
+// Feature 5 & 7: Clear function
+function clearAllShapes() {
+  if (activeShape && drawingManager) {
+    drawingManager.getSource().remove(activeShape);
+    activeShape = null;
   }
-  
-  // Close the polygon
-  const p1 = coordinates[numPoints - 1];
-  const p2 = coordinates[0];
-  area += (p1[0] * p2[1]) - (p2[0] * p1[1]);
-  
-  area = Math.abs(area) / 2;
-  
-  // Convert from degrees to square meters (approximate)
-  // At equator: 1 degree ≈ 111,320 meters
-  const metersPerDegreeLat = 111320;
-  const avgLat = coordinates.reduce((sum, coord) => sum + coord[1], 0) / coordinates.length;
-  const metersPerDegreeLon = metersPerDegreeLat * Math.cos(avgLat * Math.PI / 180);
-  
-  area = area * metersPerDegreeLat * metersPerDegreeLon;
-  
-  return area;
+  if (areaLabel) {
+    map.markers.remove(areaLabel);
+    areaLabel = null;
+  }
+  if (distanceDataSource) {
+    distanceDataSource.clear();
+  }
+  distanceMarkers.forEach(marker => map.markers.remove(marker));
+  distanceMarkers = [];
+  distancePath = [];
+  measuringDistance = false;
 }
 
 const clearShapeBtn = document.getElementById("clearShape");
 if (clearShapeBtn) {
-  clearShapeBtn.onclick = () => {
-    if (activeShape && drawingManager) {
-      drawingManager.getSource().remove(activeShape);
-      activeShape = null;
-    }
-    if (areaLabel) {
-      map.markers.remove(areaLabel);
-      areaLabel = null;
-    }
-  };
+  clearShapeBtn.onclick = clearAllShapes;
 }
 
+// Feature 6: Smaller, different style toggle button
 const toggleStyleBtn = document.getElementById("toggleStyle");
 let currentStyle = 'road';
 let isChangingStyle = false;
 
 if (toggleStyleBtn) {
+  // Apply compact styling
+  toggleStyleBtn.style.minWidth = '100px';
+  toggleStyleBtn.style.fontSize = '11px';
+  toggleStyleBtn.style.padding = '6px 10px';
+  
   toggleStyleBtn.onclick = () => {
     if (!map || isChangingStyle) return;
     
@@ -425,10 +547,12 @@ if (toggleStyleBtn) {
       map.setStyle({ style: 'satellite_road_labels' });
       currentStyle = 'satellite';
       toggleStyleBtn.textContent = '🗺️ Road';
+      toggleStyleBtn.style.background = '#2e7d32';
     } else {
       map.setStyle({ style: 'road' });
       currentStyle = 'road';
       toggleStyleBtn.textContent = '🛰️ Satellite';
+      toggleStyleBtn.style.background = '#007bff';
     }
     
     setTimeout(() => {
@@ -448,6 +572,34 @@ if (contextMenu) {
     const lng = contextLatLng[0];
     const lat = contextLatLng[1];
 
+    // Feature 7: Drawing tools submenu
+    if (action === "drawTools") {
+      showInfo(`
+        <div style="font-weight: 600; margin-bottom: 8px;">📐 Drawing Tools</div>
+        <button onclick="drawingManager.setOptions({ mode: 'draw-polygon' }); hideInfo();" 
+          style="width: 100%; margin: 4px 0; padding: 8px; border: none; background: #007bff; color: white; border-radius: 4px; cursor: pointer;">
+          🔷 Draw Polygon
+        </button>
+        <button onclick="drawingManager.setOptions({ mode: 'draw-rectangle' }); hideInfo();" 
+          style="width: 100%; margin: 4px 0; padding: 8px; border: none; background: #007bff; color: white; border-radius: 4px; cursor: pointer;">
+          ⬜ Draw Rectangle
+        </button>
+        <button onclick="drawingManager.setOptions({ mode: 'edit-geometry' }); hideInfo();" 
+          style="width: 100%; margin: 4px 0; padding: 8px; border: none; background: #2e7d32; color: white; border-radius: 4px; cursor: pointer;">
+          ✏️ Edit Geometry
+        </button>
+      `);
+      return;
+    }
+
+    // Feature 5: Clear in context menu
+    if (action === "clear") {
+      clearAllShapes();
+      showInfo("✅ All shapes cleared!");
+      setTimeout(hideInfo, 2000);
+      return;
+    }
+
     if (action === "coords") {
       showInfo(`
         <b>Coordinates</b><br>
@@ -463,9 +615,11 @@ if (contextMenu) {
       }
 
       const area = getShapeArea(activeShape);
+      const areaSqFt = (area * 10.7639).toFixed(2);
       showInfo(`
         <b>Area Details</b><br>
         ${area.toFixed(2)} m²<br>
+        ${areaSqFt} ft²<br>
         ${(area / 10000).toFixed(4)} ha<br>
         ${(area * 0.000247105).toFixed(4)} acres
       `);
@@ -474,6 +628,8 @@ if (contextMenu) {
     if (action === "startDistance") {
       measuringDistance = true;
       distancePath = [];
+      distanceMarkers.forEach(marker => map.markers.remove(marker));
+      distanceMarkers = [];
       
       if (!distanceDataSource) {
         distanceDataSource = new atlas.source.DataSource();
@@ -481,44 +637,37 @@ if (contextMenu) {
         
         map.layers.add(new atlas.layer.LineLayer(distanceDataSource, null, {
           strokeColor: 'red',
-          strokeWidth: 2
+          strokeWidth: 3
         }));
       } else {
         distanceDataSource.clear();
       }
       
-      showInfo("📏 Distance measurement started.<br>Click to add points.");
+      showInfo("📏 Distance measurement started.<br>Click to add points.<br>Right-click → Finish to complete.");
     }
 
-if (action === "finishDistance") {
-  measuringDistance = false;
-  if (distancePath.length > 1) {
-    // Calculate total distance by summing all segments
-    let totalDistance = 0;
-    
-    for (let i = 0; i < distancePath.length - 1; i++) {
-      const point1 = distancePath[i];
-      const point2 = distancePath[i + 1];
-      
-      // Use Azure Maps getDistanceTo function
-      const pos1 = new atlas.data.Position(point1[0], point1[1]);
-      const pos2 = new atlas.data.Position(point2[0], point2[1]);
-      const segmentDistance = atlas.math.getDistanceTo(pos1, pos2);
-      
-      totalDistance += segmentDistance;
+    if (action === "finishDistance") {
+      measuringDistance = false;
+      if (distancePath.length > 1) {
+        let totalDistance = 0;
+        
+        for (let i = 0; i < distancePath.length - 1; i++) {
+          const pos1 = new atlas.data.Position(distancePath[i][0], distancePath[i][1]);
+          const pos2 = new atlas.data.Position(distancePath[i+1][0], distancePath[i+1][1]);
+          totalDistance += atlas.math.getDistanceTo(pos1, pos2);
+        }
+        
+        showInfo(`
+          <b>Total Distance</b><br>
+          ${totalDistance.toFixed(2)} m<br>
+          ${(totalDistance / 1000).toFixed(3)} km<br>
+          ${(totalDistance * 3.28084).toFixed(2)} ft<br>
+          ${(totalDistance * 0.000621371).toFixed(3)} miles
+        `);
+      } else {
+        showInfo("⚠️ Click at least 2 points to measure.");
+      }
     }
-    
-    showInfo(`
-      <b>Distance</b><br>
-      ${totalDistance.toFixed(2)} m<br>
-      ${(totalDistance / 1000).toFixed(3)} km<br>
-      ${(totalDistance * 3.28084).toFixed(2)} ft<br>
-      ${(totalDistance * 0.000621371).toFixed(3)} miles
-    `);
-  } else {
-    showInfo("⚠️ Click at least 2 points to measure.");
-  }
-}
 
     if (action === "export") {
       if (!activeShape) {
@@ -557,12 +706,4 @@ if (action === "finishDistance") {
         });
     }
   });
-}
-
-function updateDistanceLine() {
-  if (distanceDataSource && distancePath.length > 0) {
-    distanceDataSource.clear();
-    const line = new atlas.data.LineString(distancePath);
-    distanceDataSource.add(new atlas.data.Feature(line));
-  }
 }
